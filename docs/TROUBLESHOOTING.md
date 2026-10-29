@@ -12,7 +12,7 @@
 | Воркер отвечает 401 | [6](#p6) |
 | Колонка не подключается по ADB | [7](#p7) |
 | Слово активации не срабатывает | [8](#p8) |
-| Кольцо мерцает / спорит с Алисой | [9](#p9) |
+| Кольцо не загорается голубым / горит постоянно | [9](#p9) |
 | Всё сломалось, надо вернуть как было | [10](#p10) |
 
 ---
@@ -264,20 +264,45 @@ adb shell "tail -10 /tmp/wakeword.log"
 
 <a id="p9"></a>
 
-## 9. Кольцо мерцает или спорит с Алисой
+## 9. Кольцо не загорается голубым (или горит постоянно)
 
-`jarvis-led` замечает, что цвет поменял кто-то другой (Алиса), и отступает на
-4 секунды. Если мерцание осталось:
+В покое кольцо выключено — это норма. Голубой появляется только на ответ
+Джарвиса (`event=response`, `route=llm`) и гаснет сам.
 
 ```powershell
-adb shell "/etc/init.d/S99jarvis-led stop"   # выключить совсем
+# жив ли демон и что он видит
+adb shell "pidof jarvis-led"
+adb shell "/etc/init.d/S99jarvis-led status"
 adb shell "cat /data/opt/jarvis-led/led.log"
 ```
 
-Убедитесь, что запущен только один экземпляр:
+Если `pidof` пуст, а в логе пусто — служба не запустилась. Частая причина:
+на колонке остался старый init-скрипт, который передаёт бинарнику флаги,
+которых больше нет (`-speed`). Проверьте и переустановите:
 
 ```powershell
-adb shell "pidof jarvis-led"
+adb shell "grep start-stop-daemon /etc/init.d/S99jarvis-led"
+# должно быть: -- -bright "$bright"   (без -fps, -speed, -mode)
+```
+
+Если кольцо «застыло» цветным после ручных экспериментов — погасите:
+
+```powershell
+adb shell "/etc/init.d/S99jarvis-led stop"
+adb shell "/data/opt/jarvis-led/jarvis-led -mode off"
+adb shell "/etc/init.d/S99jarvis-led start"
+```
+
+Проверка без голоса (кольцо должно загореться голубым на 4 секунды):
+
+```powershell
+adb shell "/etc/init.d/S99jarvis-led stop; /data/opt/jarvis-led/jarvis-led -demo 4s; /etc/init.d/S99jarvis-led start"
+```
+
+Если голубой тусклый или слишком яркий:
+
+```powershell
+adb shell "echo 0.8 > /data/opt/jarvis-led/brightness; /etc/init.d/S99jarvis-led restart"
 ```
 
 ---

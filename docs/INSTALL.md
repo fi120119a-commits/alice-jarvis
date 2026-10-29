@@ -355,6 +355,16 @@ adb shell "grep '\"event\":\"response\"' /data/opt/quasar-bridge/conversations.j
 
 ## 7. Подсветка кольца (необязательно)
 
+Радужной анимации нет. Кольцо горит ровным голубым с мягким «дыханием»
+только пока Джарвис отвечает, и гаснет, когда ответ закончился. Всё остальное
+время кольцо выключено и полностью принадлежит Алисе — «слушаю», громкость,
+её собственные ответы.
+
+Как это устроено: демон читает только новые строки журнала моста
+`/data/opt/quasar-bridge/conversations.jsonl` и реагирует на события
+`{"event":"response","route":"llm"}`. Длительность свечения оценивается по
+длине текста (`2.5 с + символы / 14`), но не меньше 4 и не больше 28 секунд.
+
 ```powershell
 cd src\led
 $env:GOOS="linux"; $env:GOARCH="arm"; $env:GOARM="7"; $env:CGO_ENABLED="0"
@@ -362,17 +372,25 @@ go build -trimpath -ldflags="-s -w" -o jarvis-led .
 cd ..\..
 adb shell "mkdir -p /data/opt/jarvis-led"
 adb push src\led\jarvis-led /data/opt/jarvis-led/jarvis-led
-adb push src\led\S99jarvis-led /etc/init.d/S99jarvis-led
-adb shell "chmod 755 /data/opt/jarvis-led/jarvis-led /etc/init.d/S99jarvis-led"
+adb push src\led\S99jarvis-led /data/local/tmp/S99jarvis-led
+# /etc/init.d лежит на read-only разделе: сначала remount rw, потом ro
+adb shell "su -c 'mount -o remount,rw /; cp /data/local/tmp/S99jarvis-led /etc/init.d/S99jarvis-led; chmod 755 /etc/init.d/S99jarvis-led; sync; mount -o remount,ro /'"
+adb shell "chmod 755 /data/opt/jarvis-led/jarvis-led"
 adb shell "/etc/init.d/S99jarvis-led restart"
 ```
 
 Для aarch64 соберите с `GOARCH=arm64` и `GOARM` не задавайте.
 
-Яркость:
+Проверка без голоса — кольцо должно загореться голубым на 4 секунды:
 
 ```powershell
-adb shell "echo 0.4 > /data/opt/jarvis-led/brightness; /etc/init.d/S99jarvis-led restart"
+adb shell "/etc/init.d/S99jarvis-led stop; /data/opt/jarvis-led/jarvis-led -demo 4s; /etc/init.d/S99jarvis-led start"
+```
+
+Яркость (`0..1`, по умолчанию `0.8`):
+
+```powershell
+adb shell "echo 0.8 > /data/opt/jarvis-led/brightness; /etc/init.d/S99jarvis-led restart"
 ```
 
 ---
