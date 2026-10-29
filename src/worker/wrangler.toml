@@ -1,0 +1,27 @@
+# Конфигурация Wrangler для ручного деплоя воркера.
+#
+# Обычный путь в этом проекте — scripts/deploy_worker.py (без Node.js).
+# Wrangler нужен, если вы хотите деплоить вручную:
+#
+#   npm install -g wrangler
+#   wrangler login
+#   wrangler secret put JARVIS_KEY
+#   wrangler deploy
+#
+# Внимание: JARVIS_KEY и ключи провайдеров НЕ пишите в [vars] — это секреты.
+
+name = "alice-jarvis-llm"
+main = "cloudflare-proxy.js"
+compatibility_date = "2025-01-01"
+
+# Привязка Workers AI (бесплатный лимит, карта не нужна).
+[ai]
+binding = "AI"
+
+# Прогрев модели каждые 10 минут: первый вопрос после простоя отвечает быстрее.
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Необязательно: свой персонаж вместо DEFAULT_SYSTEM из cloudflare-proxy.js.
+# [vars]
+# JARVIS_SYSTEM = "Ты — ..."

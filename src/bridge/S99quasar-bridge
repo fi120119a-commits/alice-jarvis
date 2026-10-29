@@ -1,0 +1,67 @@
+#!/bin/sh
+# Автозапуск quasar-bridge (Buildroot, BusyBox init) с перезапуском при падении.
+# Управление: /etc/init.d/S99quasar-bridge {start|stop|restart|status}
+set -eu
+
+root=/data/opt/quasar-bridge
+start_script=$root/start.sh
+log=$root/bridge.log
+pidfile=/var/run/quasar-bridge.pid
+
+is_running() {
+    if [ -f "$pidfile" ]; then
+        pid=$(cat "$pidfile" 2>/dev/null || true)
+        case "$pid" in
+            ''|*[!0-9]*) rm -f "$pidfile" ;;
+            *)
+                if [ -d "/proc/$pid" ]; then
+                    return 0
+                fi
+                rm -f "$pidfile"
+                ;;
+        esac
+    fi
+    pidof quasar-bridge >/dev/null 2>&1 && return 0
+    return 1
+}
+
+start_daemon() {
+    is_running && return 0
+    [ -x "$start_script" ] || { echo "quasar-bridge: нет $start_script" >&2; return 1; }
+    mkdir -p "$root"
+    # Обёртка: держит лог в пределах 1 МБ и поднимает мост через 5 секунд.
+    start-stop-daemon --start --background --make-pidfile \
+        --pidfile "$pidfile" --startas /bin/sh -- -c "
+            while true; do
+                size=\$(wc -c < '$log' 2>/dev/null || echo 0)
+                if [ \"\$size\" -gt 1000000 ]; then mv -f '$log' '$log.1'; fi
+                '$start_script' >> '$log' 2>&1
+                sleep 5
+            done"
+}
+
+stop_daemon() {
+    if [ -f "$pidfile" ]; then
+        pid=$(cat "$pidfile" 2>/dev/null || true)
+        case "$pid" in
+            ''|*[!0-9]*) ;;
+            *) kill "$pid" 2>/dev/null || true ;;
+        esac
+        rm -f "$pidfile"
+    fi
+    # Сначала снимаем обёртку, чтобы она не подняла процесс снова.
+    killall quasar-bridge 2>/dev/null || true
+    sleep 1
+    killall -9 quasar-bridge 2>/dev/null || true
+}
+
+case "${1:-start}" in
+    start) start_daemon ;;
+    stop) stop_daemon ;;
+    restart) stop_daemon; sleep 1; start_daemon ;;
+    status)
+        if is_running; then echo "quasar-bridge is running"; exit 0
+        else echo "quasar-bridge is stopped"; exit 1; fi
+        ;;
+    *) echo "Usage: $0 {start|stop|restart|status}" >&2; exit 2 ;;
+esac

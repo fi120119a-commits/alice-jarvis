@@ -1,0 +1,24 @@
+Alice Jarvis
+Copyright 2026 Alice Jarvis contributors
+Licensed under the MIT License (see LICENSE).
+
+--------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+--------------------------------------------------------------------
+
+1. Quasar Bridge
+   Copyright 2026 Sergey Krashevich and contributors
+   https://github.com/skrashevich/quasar-bridge
+   Licensed under the Apache License, Version 2.0.
+
+   Используется как отдельный исполняемый компонент на колонке.
+   Исходный код в этот репозиторий не включён. Изменения, внесённые
+   в конфигурацию и скрипты установки, принадлежат этому проекту.
+
+2. station-wakeword
+   https://github.com/tangenx/station-wakeword
+   Лицензия — согласно репозиторию автора.
+
+3. Yandex Station firmware / Alice
+   Права принадлежат ООО «Яндекс». Проект неофициальный, прошивка
+   не распространяется и не модифицируется.

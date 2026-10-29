@@ -1,0 +1,12 @@
+# Единые переводы строк: в репозитории всегда LF.
+* text=auto eol=lf
+
+# PowerShell-скрипты на Windows удобнее с CRLF (в репозитории всё равно LF).
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Бинарники не конвертируем.
+*.png binary
+*.jpg binary
+*.ico binary

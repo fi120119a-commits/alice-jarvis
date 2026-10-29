@@ -1,0 +1,60 @@
+#!/bin/sh
+# Радужная подсветка кольца Яндекс Станции Лайт (jarvis-led).
+# Управление:  /etc/init.d/S99jarvis-led {start|stop|restart|status}
+set -eu
+
+root=/data/opt/jarvis-led
+binary=$root/jarvis-led
+pidfile=/var/run/jarvis-led.pid
+
+is_running() {
+    if [ -f "$pidfile" ]; then
+        pid=$(cat "$pidfile" 2>/dev/null || true)
+        case "$pid" in
+            ''|*[!0-9]*) rm -f "$pidfile" ;;
+            *)
+                if [ -d "/proc/$pid" ]; then
+                    return 0
+                fi
+                rm -f "$pidfile"
+                ;;
+        esac
+    fi
+    pidof jarvis-led >/dev/null 2>&1 && return 0
+    return 1
+}
+
+start_daemon() {
+    is_running && return 0
+    [ -x "$binary" ] || { echo "jarvis-led: нет $binary" >&2; return 1; }
+    # яркость можно менять без пересборки: echo 0.4 > /data/opt/jarvis-led/brightness
+    bright=0.75
+    [ -f "$root/brightness" ] && bright=$(cat "$root/brightness" 2>/dev/null || echo 0.75)
+    start-stop-daemon --start --background --make-pidfile \
+        --pidfile "$pidfile" --startas "$binary" -- -bright "$bright" >>"$root/led.log" 2>&1
+}
+
+stop_daemon() {
+    if [ -f "$pidfile" ]; then
+        pid=$(cat "$pidfile" 2>/dev/null || true)
+        case "$pid" in
+            ''|*[!0-9]*) ;;
+            *) kill "$pid" 2>/dev/null || true ;;
+        esac
+        rm -f "$pidfile"
+    fi
+    killall jarvis-led 2>/dev/null || true
+    # гасим кольцо, чтобы не осталась «застывшая» гирлянда
+    [ -x "$binary" ] && "$binary" -mode off >/dev/null 2>&1 || true
+}
+
+case "${1:-start}" in
+    start) start_daemon ;;
+    stop) stop_daemon ;;
+    restart) stop_daemon; sleep 1; start_daemon ;;
+    status)
+        if is_running; then echo "jarvis-led is running"; exit 0
+        else echo "jarvis-led is stopped"; exit 1; fi
+        ;;
+    *) echo "Usage: $0 {start|stop|restart|status}" >&2; exit 2 ;;
+esac

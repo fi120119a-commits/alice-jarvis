@@ -1,0 +1,180 @@
+{
+  "listen": "127.0.0.1:8443",
+  "upstream": "wss://uniproxy.alice.yandex.net/uni.ws",
+  "mode": "hybrid",
+  "tls_cert": "",
+  "tls_key": "",
+  "allowed_ips": [
+    "127.0.0.1",
+    "::1"
+  ],
+
+  "llm_base_url": "https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev/cf/v1",
+  "llm_model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "llm_api": "chat_completions",
+  "llm_chat_parameters": {
+    "temperature": null,
+    "response_format": null,
+    "chat_template_kwargs": null
+  },
+
+  "home_warm_area": "",
+  "listen_after_reply": true,
+
+  "routing": {
+    "rules": [
+      {
+        "name": "jarvis",
+        "route": "llm",
+        "match": {
+          "contains_any": [
+            "джарвис",
+            "jarvis",
+            "гарвис",
+            "жарвис"
+          ]
+        }
+      },
+      {
+        "name": "yandex_services",
+        "route": "yandex",
+        "match": {
+          "contains_any": [
+            "погода",
+            "погоду",
+            "таймер",
+            "будильник",
+            "музыку",
+            "музыка",
+            "радио",
+            "песню",
+            "песни",
+            "трек",
+            "который час",
+            "день недели",
+            "новости",
+            "курс доллара",
+            "курс евро",
+            "анекдот",
+            "сказку",
+            "свет",
+            "люстру",
+            "торшер",
+            "вентилятор",
+            "гирлянду",
+            "розетку",
+            "шторы"
+          ]
+        }
+      },
+      {
+        "name": "pc_commands",
+        "route": "yandex",
+        "match": {
+          "contains_any": [
+            "открой хром",
+            "открой браузер",
+            "открой телеграм",
+            "открой проводник",
+            "открой папку",
+            "запусти",
+            "закрой хром",
+            "закрой телеграм",
+            "громче",
+            "тише",
+            "громкость",
+            "выключи звук",
+            "скриншот",
+            "снимок экрана",
+            "заблокируй",
+            "выключи компьютер",
+            "перезагрузи",
+            "сверни",
+            "разверни",
+            "напечатай",
+            "что открыто",
+            "какие окна",
+            "сколько памяти",
+            "загрузка процессора",
+            "статус системы",
+            "переключись на",
+            "найди в интернете",
+            "погугли"
+          ]
+        }
+      }
+    ],
+
+    "default_route": "llm",
+
+    "refusal": {
+      "enabled": true,
+      "prefixes": [
+        "не могу",
+        "я не могу",
+        "я не буду",
+        "не буду",
+        "не поняла",
+        "я не поняла",
+        "не понял",
+        "я не понял",
+        "извините",
+        "простите",
+        "к сожалению",
+        "не знаю",
+        "я не знаю",
+        "я пока не умею",
+        "пока не умею",
+        "увы"
+      ],
+      "contains_any": [
+        "не могу помочь",
+        "не могу ответить",
+        "не могу понять",
+        "не удалось понять",
+        "не знаю",
+        "не умею",
+        "не поняла",
+        "не понял",
+        "не понимаю"
+      ]
+    }
+  },
+
+  "conversation_log": {
+    "enabled": true,
+    "path": "conversations.jsonl",
+    "max_size_mb": 1,
+    "max_backups": 2,
+    "max_text_chars": 8000
+  },
+
+  "assistant_tools": {
+    "enabled": false,
+    "web": false,
+    "history": false,
+    "time": false,
+    "play_sound": false,
+    "timezone": "Europe/Moscow",
+    "max_rounds": 3,
+    "max_calls": 4,
+    "web_timeout_ms": 8000,
+    "web_max_bytes": 1048576,
+    "web_max_chars": 12000,
+    "history_max_scan_mb": 16,
+    "mcp_servers": []
+  },
+
+  "local_progress": {
+    "enabled": true,
+    "after_ms": 1500,
+    "interval_ms": 3000
+  },
+
+  "dialogue_context": {
+    "enabled": false,
+    "ttl_seconds": 300,
+    "max_turns": 6,
+    "max_chars": 12000
+  }
+}

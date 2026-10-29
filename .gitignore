@@ -1,0 +1,58 @@
+# ---- Секреты и локальные конфиги (никогда не коммитить) ----
+.env
+*.env
+!*.env.example
+!runtime.env.example
+config.json
+runtime.env
+*.key
+.backup/
+logs/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ---- Node / JS ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.wrangler/
+.dev.vars
+
+# ---- Go ----
+*.exe
+*.test
+*.out
+/src/led/jarvis-led
+/src/led/jarvis-led-linux-arm
+/src/led/jarvis-led-linux-arm64
+
+# ---- Бинарники и образы ----
+vendor/
+quasar-bridge-linux-*
+*.yap
+*.apk
+*.img
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Временные файлы ----
+*.tmp
+*.bak
+*.log
+!docs/**/*.md
