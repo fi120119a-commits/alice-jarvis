@@ -1,11 +1,16 @@
 # ---- Секреты и локальные конфиги (никогда не коммитить) ----
 .env
+.env.*
 *.env
+!.env.example
 !*.env.example
 !runtime.env.example
 config.json
 runtime.env
 *.key
+*.pem
+*.pfx
+*.secret
 .backup/
 logs/
 
@@ -36,7 +41,9 @@ yarn-error.log*
 /src/led/jarvis-led-linux-arm
 /src/led/jarvis-led-linux-arm64
 
-# ---- Бинарники и образы ----
+# ---- Сборка и дистрибутивы ----
+dist/
+build/
 vendor/
 quasar-bridge-linux-*
 *.yap

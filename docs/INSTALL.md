@@ -1,469 +1,412 @@
-# 📦 Установка с нуля
+# 📦 Установка и развёртывание
 
-Инструкция рассчитана на человека, который раньше не ставил ничего на Яндекс
-Станцию. Идите по шагам сверху вниз — каждый заканчивается проверкой, после
-которой можно двигаться дальше.
-
-**Время:** 1–2 часа. **Паяльник не нужен.** Понадобятся только Wi-Fi, ПК и
-аккаунт Cloudflare (бесплатный).
+Пошаговое руководство по установке голосового ассистента Джарвис на Яндекс Станцию Лайт (YNDX-00028).
 
 ---
 
-## 0. Что должно быть готово заранее
+## 0. Предварительные требования
 
-| Требование | Как проверить |
-| --- | --- |
-| Станция Лайт (YNDX-00028), прошивка 3.21 | наклейка на дне / приложение «Дом с Алисой» |
-| На колонке получен **root** | `adb shell id` → `uid=0(root)` |
-| Включён **ADB по Wi-Fi** | `adb connect <IP>:5555` → `connected` |
-| ПК в той же Wi-Fi сети | `ping <IP>` отвечает |
-| Python 3.10+ на ПК | `python --version` |
-| Аккаунт Cloudflare | [dash.cloudflare.com](https://dash.cloudflare.com) |
+| Параметр | Требование | Метод проверки |
+| --- | --- | --- |
+| Устройство | Яндекс Станция Лайт (модель `YNDX-00028`) | Маркировка на нижней крышке корпуса |
+| Привилегии ОС | Права **root** на колонке | `adb shell id` $\to$ `uid=0(root)` |
+| Сетевой интерфейс | Включённый сервер ADB по Wi-Fi (порт 5555) | `adb connect <STATION_IP>:5555` $\to$ `connected` |
+| Локальная сеть | ПК и колонка в одном широковещательном сегменте Wi-Fi | `ping <STATION_IP>` |
+| Окружение ПК | Python 3.10+ с менеджером пакетов `pip` | `python --version` |
+| Утилиты ОС | Пакет `platform-tools` (ADB) на ПК | `adb version` |
+| Облачный сервис | Аккаунт Cloudflare с доступом к Workers AI | Авторизация на [dash.cloudflare.com](https://dash.cloudflare.com) |
 
-> 🔐 Root и ADB — обязательное условие. Способы их получения зависят от
-> прошивки и меняются; ищите актуальную инструкцию в сообществе
-> (например, wiki проекта hackalice). Этот репозиторий не распространяет
-> эксплойты и не модифицирует прошивку.
-
-Установите ADB:
-
-- **Windows:** `winget install Google.PlatformTools`
-- **macOS:** `brew install android-platform-tools`
-- **Linux:** `sudo apt install android-tools-adb`
+> ⚠️ Установка ADB:
+> - **Windows:** `winget install Google.PlatformTools`
+> - **macOS:** `brew install android-platform-tools`
+> - **Linux:** `sudo apt install android-tools-adb`
 
 ---
 
-## 1. Подключаемся к колонке
+## 1. Подключение к Станции по ADB
+
+Подключитесь к колонке через сетевой интерфейс ADB:
 
 ```powershell
-adb connect 192.168.1.50:5555
+adb connect <STATION_IP>:5555
 adb devices
 ```
 
-В списке должно появиться `192.168.1.50:5555   device` (не `offline`).
+Убедитесь, что устройство отображается со статусом `device` (не `offline` и не `unauthorized`).
 
-Проверяем root и архитектуру:
+Проверьте уровень привилегий и аппаратную архитектуру:
 
 ```powershell
-adb -s 192.168.1.50:5555 shell "id; uname -m; cat /proc/version"
+adb -s <STATION_IP>:5555 shell "id; uname -m; cat /proc/version"
 ```
 
-Ожидаемо: `uid=0(root)`, `aarch64` (или `armv7l`). Запомните архитектуру —
-от неё зависит, какой бинарник моста скачивать.
-
-> 💡 Дальше в инструкции везде `192.168.1.50:5555` — замените на свой адрес.
-> Все команды `adb` одинаковы на Windows, macOS и Linux. PowerShell-скрипты
-> из `scripts/` — только для Windows; для других ОС в шагах есть ручные команды.
+> ⚠️ **Архитектурная особенность Станции Лайт:**  
+> Ядро Linux сообщает `aarch64` (`uname -m`), однако пользовательское окружение Buildroot является **32-битным (ARMv7 / `armv7l`)**.  
+> Попытка запуска 64-битных бинарников (`linux-arm64`) вызывает системную ошибку `-sh: ./binary: cannot execute binary file: Exec format error`.  
+> Все исполняемые файлы для колонки (`quasar-bridge`, `jarvis-led`, `wakeword`) обязаны быть собраны строго под **ARMv7** (`GOOS=linux GOARCH=arm GOARM=7`).
 
 ---
 
-## 2. Готовим облачный «мозг»
+## 2. Развёртывание облачного «мозга» (Cloudflare Workers AI)
 
-### 2.1. Аккаунт и Workers AI
+### 2.1. Создание API-токена Cloudflare
 
-1. Зарегистрируйтесь на [dash.cloudflare.com](https://dash.cloudflare.com)
-   (карта не нужна).
-2. В меню слева откройте **Workers & Pages** → **Create** → **Worker**.
-   Имя можно любое, например `alice-jarvis-llm`. Не обязательно создавать его
-   вручную — скрипт ниже сам загрузит код, но аккаунт должен быть активен.
-3. Убедитесь, что доступен **Workers AI** (раздел **AI** в дашборде).
-   Бесплатный лимит — 10 000 neurons/сутки, этого с запасом хватает на
-   голосового ассистента.
+1. Откройте консоль управления [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Перейдите в **My Profile** $\to$ **API Tokens** $\to$ **Create Token**.
+3. Выберите шаблон **Edit Cloudflare Workers** (права `Workers Scripts:Edit`).
+4. Нажмите **Continue to summary** $\to$ **Create Token**. Скопируйте сгенерированный токен.
+5. На главной странице панели Cloudflare в правой колонке скопируйте **Account ID**.
 
-### 2.2. API-токен
+### 2.2. Настройка виртуального окружения и `.env`
 
-1. Откройте [My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens).
-2. **Create Token** → шаблон **Edit Cloudflare Workers** → **Continue** →
-   **Create Token**.
-3. Скопируйте токен (показывается один раз).
-4. Там же на главной странице дашборда скопируйте **Account ID**
-   (правая колонка).
+Создайте изолированное окружение Python и установите зависимости деплоя:
 
-### 2.3. Заполняем `.env`
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Создайте рабочий файл `.env` из шаблона:
 
 ```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-Минимум, что нужно заполнить:
+Заполните обязательные переменные:
 
 ```ini
-CF_API_TOKEN=<токен>
-CF_ACCOUNT_ID=<account id>
-JARVIS_KEY=<длинная случайная строка>
+CF_API_TOKEN=<ВАШ_CLOUDFLARE_API_ТОКЕН>
+CF_ACCOUNT_ID=<ВАШ_CLOUDFLARE_ACCOUNT_ID>
 WORKER_NAME=alice-jarvis-llm
-STATION_IP=192.168.1.50
+JARVIS_KEY=<ДЛИННАЯ_СЛУЧАЙНАЯ_СТРОКА_АВТОРИЗАЦИИ>
+STATION_IP=<STATION_IP>
+STATION_ADB_PORT=5555
 ```
 
-`JARVIS_KEY` — это пароль к вашему воркеру. Сгенерировать:
+Генерация ключа `JARVIS_KEY`:
 
 ```powershell
-python -c "import secrets;print(secrets.token_urlsafe(24))"
+python -c "import secrets; print(secrets.token_urlsafe(24))"
 ```
 
-### 2.4. Деплой воркера
+### 2.3. Публикация воркера
+
+Запустите скрипт автоматического деплоя:
 
 ```powershell
-python -m pip install -r requirements.txt
 python scripts\deploy_worker.py
 ```
 
-Скрипт сам прочитает `.env` — экспортировать переменные вручную не нужно.
-Он загрузит код, включит Workers AI, поставит cron-прогрев, сохранит секреты
-и проверит ответ модели. В конце выведет:
+Скрипт выполняет:
+1. Загрузку исходного кода `src/worker/cloudflare-proxy.js`.
+2. Привязку среды инференса Cloudflare Workers AI (`AI`).
+3. Регистрацию секрета `JARVIS_KEY` в окружении воркера.
+4. Настройку Cron Triggers (`*/10 * * * *`) для фонового прогрева модели каждые 10 минут.
+5. Тестовый инференс модели `@cf/mistralai/mistral-small-3.1-24b-instruct`.
 
+После завершения скрипт выведет публичный URL:
 ```
-адрес: https://alice-jarvis-llm.<ваш-поддомен>.workers.dev
-healthz: 200, холодный 600 мс, тёплый 180 мс
-модель: 2400 мс, @cf/mistralai/mistral-small-3.1-24b-instruct
-ответ: «Я — Джарвис, сэр. К вашим услугам.»
+https://alice-jarvis-llm.<ВАШ_ПОДДОМЕН>.workers.dev
 ```
 
-Если `JARVIS_KEY` не был задан заранее, скрипт сгенерирует его и покажет
-один раз — сохраните.
-
-**Сохраните адрес** — он понадобится в `.env` и `config.json`.
-
-Проверка «мозга» без колонки:
+Проверьте работу эндпоинта напрямую с ПК:
 
 ```powershell
-$key = "<ваш JARVIS_KEY>"
-curl.exe -s -H "Authorization: Bearer $key" `
+curl.exe -s -H "Authorization: Bearer <JARVIS_KEY>" `
   -H "Content-Type: application/json" `
-  -d '{\"messages\":[{\"role\":\"user\",\"content\":\"кто ты?\"}],\"max_tokens\":80}' `
-  https://alice-jarvis-llm.<ваш-поддомен>.workers.dev/cf/v1/chat/completions
+  -d "{\"messages\":[{\"role\":\"user\",\"content\":\"кто ты?\"}],\"max_tokens\":80}" `
+  https://alice-jarvis-llm.<ВАШ_ПОДДОМЕН>.workers.dev/cf/v1/chat/completions
 ```
 
-Должен прийти JSON с ответом в стиле Джарвиса и словом «сэр».
-
-> 🧠 **Почему не 70B?** Бесплатный 70B генерирует 2–4 токена/с, и голосовой
-> ответ идёт 10–17 секунд. По умолчанию используется mistral-small (2–3 с),
-> с автоматическим откатом на 8B и 70B, если модель недоступна.
+Ожидаемый ответ: JSON-объект в стандарте OpenAI с репликой персонажа J.A.R.V.I.S. и обращением «сэр/мисс».
 
 ---
 
-## 3. Ставим мост на колонку
+## 3. Установка и настройка `quasar-bridge`
 
-Мост — это `quasar-bridge` Сергея Крашевича. Есть два способа установки.
+Мост `quasar-bridge` выполняет перехват голосового сеанса, локальную классификацию намерений и проксирование запросов.
 
-### Вариант A (рекомендуемый): официальный пакет `.yap` через YAM
+### 3.1. Получение бинарного файла
 
-Если на колонке стоит [YAM](https://github.com/nyakokitsu/yam):
-
-1. Скачайте со [страницы релизов](https://github.com/skrashevich/quasar-bridge/releases/latest)
-   пакет `.yap` под свою архитектуру (`linux-arm64` для aarch64) и файл `.sha256`.
-2. Проверьте контрольную сумму и установите:
-
-```sh
-shasum -a 256 -c quasar-bridge-<версия>-linux-arm64.yap.sha256
-export YAM_URL='http://192.168.1.50:8099'
-yam install quasar-bridge-<версия>-linux-arm64.yap
-yam service enable quasar-bridge
-```
-
-Дальше настройте `/data/opt/quasar-bridge/config.json` по шагу 3.3.
-
-### Вариант B: ручная установка бинарника (как в этом репозитории)
-
-Подходит, если YAM нет. Скачайте бинарник со страницы релизов
-(`quasar-bridge-linux-arm64` для aarch64, `quasar-bridge-linux-arm` для armv7)
-и положите в `vendor/`:
+Скачайте скомпилированный бинарник для ARM32 (`quasar-bridge-linux-arm`) со страницы релизов [skrashevich/quasar-bridge](https://github.com/skrashevich/quasar-bridge/releases/latest) и поместите его в каталог `vendor/`:
 
 ```
 alice-jarvis/
 └── vendor/
-    └── quasar-bridge-linux-arm64
+    └── quasar-bridge-linux-arm
 ```
 
-Затем на Windows:
+### 3.2. Конфигурация моста (`config.json` и `runtime.env`)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\deploy_bridge.ps1 `
-  -Device 192.168.1.50:5555 `
-  -BinaryPath vendor\quasar-bridge-linux-arm64
-```
-
-Вручную (Linux/macOS) — то же самое по шагам:
-
-```bash
-adb shell "mkdir -p /data/opt/quasar-bridge/bin"
-adb push vendor/quasar-bridge-linux-arm64 /data/opt/quasar-bridge/bin/quasar-bridge
-adb push config.json   /data/opt/quasar-bridge/config.json
-adb push runtime.env   /data/opt/quasar-bridge/runtime.env
-adb push src/bridge/start.sh /data/opt/quasar-bridge/start.sh
-adb shell "chmod 755 /data/opt/quasar-bridge/bin/quasar-bridge /data/opt/quasar-bridge/start.sh"
-adb shell "chmod 600 /data/opt/quasar-bridge/config.json /data/opt/quasar-bridge/runtime.env"
-```
-
-### 3.3. Настройки моста
-
-Скопируйте шаблоны и заполните:
+Создайте файлы конфигурации:
 
 ```powershell
 Copy-Item config.example.json config.json
 Copy-Item runtime.env.example runtime.env
 ```
 
-В `config.json` замените:
+В `config.json` укажите адрес опубликованного воркера:
 
 ```json
-"llm_base_url": "https://alice-jarvis-llm.<ваш-поддомен>.workers.dev/cf/v1",
+"llm_base_url": "https://alice-jarvis-llm.<ВАШ_ПОДДОМЕН>.workers.dev/cf/v1",
 "llm_model": "@cf/mistralai/mistral-small-3.1-24b-instruct"
 ```
 
-В `runtime.env` впишите ключ:
+В `runtime.env` задайте параметры рантайма и токен доступа:
 
 ```sh
-export QUASAR_LLM_API_KEY=<ваш JARVIS_KEY>
+export QUASAR_LLM_API_KEY=<JARVIS_KEY>
+export GOMAXPROCS=1
+export GOMEMLIMIT=64MiB
+export SSL_CERT_FILE=/system/vendor/quasar/ca-certificates.crt
 ```
 
-Те же значения пропишите в `.env`, чтобы скрипты брали их без параметров:
+> ⚠️ **КРИТИЧЕСКИЕ ТРЕБОВАНИЯ К `runtime.env`:**
+> 1. Файл подключается через шелл (`. "$DIR/runtime.env"`). Все переменные объявляются с директивой `export`.
+> 2. **Формат строк строго LF (Unix)**. Наличие символов возврата каретки CRLF (`0x0D` / `\r`) приводит к фатальным сбоям:
+>    - `GOMEMLIMIT="64MiB\r"` вызывает панику Go-рантайма при старте бинарника: `invalid GOMEMLIMIT value`.
+>    - `QUASAR_LLM_API_KEY="key\r"` отправляет токен с невидимым переводом строки в заголовке `Authorization`, вызывая `401 Unauthorized` от Cloudflare Worker.
 
-```ini
-LLM_BASE_URL=https://alice-jarvis-llm.<ваш-поддомен>.workers.dev/cf/v1
-JARVIS_KEY=<ваш JARVIS_KEY>
-STATION_IP=192.168.1.50
-```
-
-> 💡 Если используете `scripts\deploy_bridge.ps1`, шаги 3.3 и 3.4 он сделает
-> сам: скопирует `config.json`, `runtime.env` и `start.sh`, поставит
-> автозапуск и перезапустит мост. Ручные команды ниже — для Linux/macOS и
-> для понимания того, что происходит.
-
-> ⚠️ `runtime.env` должен быть **в LF**, без `\r`. Иначе ключ приедет с
-> невидимым символом, и воркер ответит 401. В Windows сохраняйте через
-> редактор с настройкой «LF» или через `git config core.autocrlf false`.
-
-### 3.4. Автозапуск
+### 3.3. Развёртывание на колонку через PowerShell
 
 ```powershell
-adb shell "mount -o remount,rw /"
-adb push src/bridge/S99quasar-bridge /etc/init.d/S99quasar-bridge
-adb shell "chmod 755 /etc/init.d/S99quasar-bridge; sync; mount -o remount,ro /"
-adb shell "/etc/init.d/S99quasar-bridge restart"
+powershell -ExecutionPolicy Bypass -File scripts\deploy_bridge.ps1 `
+  -Device <STATION_IP>:5555 `
+  -BinaryPath vendor\quasar-bridge-linux-arm
 ```
 
-Проверка:
+### 3.4. Ручное развёртывание (Linux / macOS)
+
+```bash
+# 1. Создание каталогов
+adb -s <STATION_IP>:5555 shell "mkdir -p /data/opt/quasar-bridge/bin"
+
+# 2. Передача файлов с сохранением кодировки UTF-8 и прав
+adb -s <STATION_IP>:5555 push vendor/quasar-bridge-linux-arm /data/opt/quasar-bridge/bin/quasar-bridge
+adb -s <STATION_IP>:5555 push config.json /data/opt/quasar-bridge/config.json
+adb -s <STATION_IP>:5555 push runtime.env /data/opt/quasar-bridge/runtime.env
+adb -s <STATION_IP>:5555 push src/bridge/start.sh /data/opt/quasar-bridge/start.sh
+
+adb -s <STATION_IP>:5555 shell "chmod 755 /data/opt/quasar-bridge/bin/quasar-bridge /data/opt/quasar-bridge/start.sh"
+adb -s <STATION_IP>:5555 shell "chmod 600 /data/opt/quasar-bridge/config.json /data/opt/quasar-bridge/runtime.env"
+
+# 3. Установка init-скрипта на read-only раздел
+adb -s <STATION_IP>:5555 shell "mount -o remount,rw /"
+adb -s <STATION_IP>:5555 push src/bridge/S99quasar-bridge /etc/init.d/S99quasar-bridge
+adb -s <STATION_IP>:5555 shell "chmod 755 /etc/init.d/S99quasar-bridge; sync; mount -o remount,ro /"
+
+# 4. Запуск службы
+adb -s <STATION_IP>:5555 shell "/etc/init.d/S99quasar-bridge restart"
+```
+
+Проверьте статус службы моста:
 
 ```powershell
-adb shell "wget -q -O - http://127.0.0.1:8443/healthz"
+adb -s <STATION_IP>:5555 shell "wget -q -O - http://127.0.0.1:8443/healthz"
 ```
 
-Ожидаемо: JSON со `"status":"ok"` и `"routing_rules":3`.
+Ожидаемый ответ: JSON с полями `"status":"ok"` и валидным хешем `routing_revision`.
 
-### 3.5. IPv4-пины Cloudflare (важно!)
+---
 
-На некоторых прошивках IPv6 до `workers.dev` открывает соединение, но данные
-не приходят: мост ждёт 60 секунд и отдаёт «Сейчас не получилось получить ответ
-локальной модели». Лечится принудительным IPv4 через `/etc/hosts`.
+## 3.5. Привязка IPv4-пинов Cloudflare (предотвращение таймаутов IPv6)
+
+В сетевом стеке Buildroot на Станции Лайт наблюдается проблема зависания IPv6-трафика (blackhole): при обращении к `*.workers.dev` соединение инициируется через IPv6, но пакеты данных отбрасываются. Мост ожидает ответа 60 секунд и отдаёт голосовую заглушку («Сейчас не получилось получить ответ локальной модели»).
+
+Запустите скрипт принудительной фиксации IPv4 A-записей в `/etc/hosts`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\update_cf_pins.ps1 `
-  -Station 192.168.1.50:5555 `
-  -HostName alice-jarvis-llm.<ваш-поддомен>.workers.dev
+  -Station <STATION_IP>:5555 `
+  -HostName alice-jarvis-llm.<ВАШ_ПОДДОМЕН>.workers.dev
 ```
 
-Скрипт сам резолвит актуальные IPv4, переписывает `/etc/hosts`, возвращает
-rootfs в `ro` и проверяет результат. Если адреса Cloudflare когда-нибудь
-сменятся — просто запустите его снова.
+Скрипт безопасно перемонтирует rootfs в `rw`, обновляет `/etc/hosts` и возвращает раздел в `ro`.
 
 ---
 
-## 4. Переключаем голосовой тракт
+## 4. Переключение голосового тракта колонки
 
-Пока мост работает «вхолостую»: колонка общается с Яндексом напрямую. Теперь
-подменяем адрес WebSocket на локальный мост.
+Переключение адреса Uniproxy в системном файле `/system/vendor/quasar/quasar.cfg`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\apply_endpoint.ps1 `
-  -Device 192.168.1.50:5555
+powershell -ExecutionPolicy Bypass -File scripts\apply_endpoint.ps1 -Device <STATION_IP>:5555
 ```
 
-Что делает скрипт:
+Скрипт выполняет:
+1. Резервное копирование оригинального файла в `.backup/quasar.cfg.orig`.
+2. Замену `aliced.uniProxyUrl` на `ws://127.0.0.1:8443/uni.ws`.
+3. Перезагрузку колонки (`adb reboot`).
 
-1. сохраняет исходный `quasar.cfg` в `bridge/backup/quasar.cfg.orig`;
-2. ставит `uniProxyUrl = ws://127.0.0.1:8443/uni.ws`;
-3. перезагружает колонку и проверяет мост.
-
-Через ~45 секунд после перезагрузки скажите:
-
+После перезагрузки (спустя ~45 секунд) произнесите проверочную фразу:
 > «Алиса, который час»
 
-Если ответила — тракт переключён. Если нет — откат:
+Если колонка штатно озвучивает текущее время, голосовой перехват функционирует корректно.
+
+---
+
+## 5. Настройка слова активации «Джарвис»
+
+1. Разверните бинарник споттера `station-wakeword` и модель отрицательных примеров `negatives.bin`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\apply_endpoint.ps1 -Rollback
+adb -s <STATION_IP>:5555 shell "mkdir -p /data/wakeword"
+adb -s <STATION_IP>:5555 push wakeword /data/wakeword/wakeword
+adb -s <STATION_IP>:5555 push negatives.bin /data/wakeword/negatives.bin
+adb -s <STATION_IP>:5555 shell "chmod 755 /data/wakeword/wakeword"
+```
+
+2. Установите службу автозапуска:
+
+```powershell
+adb -s <STATION_IP>:5555 shell "mount -o remount,rw /"
+adb -s <STATION_IP>:5555 push src/wakeword/S97wakeword /etc/init.d/S97wakeword
+adb -s <STATION_IP>:5555 shell "chmod 755 /etc/init.d/S97wakeword; sync; mount -o remount,ro /"
+adb -s <STATION_IP>:5555 shell "/etc/init.d/S97wakeword start"
+```
+
+3. Откройте веб-интерфейс обучения по адресу `http://<STATION_IP>:8780`:
+   - Запишите 8 секунд фонового шума помещения.
+   - Запишите 10–15 образцов ключевого слова «Джарвис» с различных дистанций и разной интонацией.
+   - Нажмите **Train Model**.
+
+---
+
+## 6. Служба индикации светодиодного кольца (`jarvis-led`)
+
+### 6.1. Сборка бинарника (опционально)
+
+Готовый скомпилированный бинарник находится в репозитории по пути `src/led/jarvis-led`. Для самостоятельной сборки из исходников выполните:
+
+```bash
+cd src/led
+GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o jarvis-led .
+```
+
+### 6.2. Установка бинарника и init-скрипта
+
+```powershell
+# 1. Загрузка бинарника в постоянный раздел
+adb -s <STATION_IP>:5555 shell "mkdir -p /data/opt/jarvis-led"
+adb -s <STATION_IP>:5555 push src\led\jarvis-led /data/opt/jarvis-led/jarvis-led
+adb -s <STATION_IP>:5555 shell "chmod 755 /data/opt/jarvis-led/jarvis-led"
+
+# 2. Безопасное обновление init-скрипта с перемонтированием rootfs
+adb -s <STATION_IP>:5555 shell "mount -o remount,rw /"
+adb -s <STATION_IP>:5555 push src\led\S99jarvis-led /etc/init.d/S99jarvis-led
+adb -s <STATION_IP>:5555 shell "chmod 755 /etc/init.d/S99jarvis-led; sync; mount -o remount,ro /"
+```
+
+> ⚠️ **КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: УДАЛЕНИЕ ФЛАГА `-speed`**  
+> В актуальной версии демона `jarvis-led` флаг `-speed` **полностью удалён**.  
+> Если передать скрипту или демону устаревший флаг `-speed`, стандартная функция парсинга аргументов Go `flag.Parse()` генерирует фатальную ошибку:  
+> `flag provided but not defined: -speed` и аварийно завершает процесс с кодом возврата `2`.  
+> Скрипт `src/led/S99jarvis-led` передаёт исключительно флаг яркости:  
+> `start-stop-daemon ... --startas "$binary" -- -bright "$bright"`.
+
+### 6.3. Логика и поведение подсветки
+
+- **Режим озвучки ответа**: Кольцо светится равномерным голубым цветом `RGB(40,150,255)` с мягким синусоидальным «дыханием» (яркость модулируется от 0.55 до 1.0 на частоте 0.9 Гц) **строго во время воспроизведения речи Джарвиса**.
+- **Оценка длительности речи**: Длительность свечения рассчитывается автоматически по объёму текста:  
+  $$T = 2.5 + \frac{\text{len(runes)}}{14.0}$$  
+  Значение жёстко ограничено интервалом `[4.0s, 28.0s]`.
+- **Режим покоя (Idle)**: После завершения фразы светодиодное кольцо полностью отключается (`RGB(0,0,0)`). Демон освобождает доступ к аппаратным узлам sysfs `/sys/class/leds/micro:{red,green,blue}:ring{1,2,3}/brightness`, возвращая управление штатному процессу Алисы (`maind`). Все системные анимации (фиолетовая волна активации, шкала громкости, красный индикатор mute) работают в штатном режиме.
+
+### 6.4. Проверка и запуск службы
+
+Тестовый прогон аппаратного свечения на 4 секунды без голоса:
+
+```powershell
+adb -s <STATION_IP>:5555 shell "/data/opt/jarvis-led/jarvis-led -demo 4s"
+```
+
+Запуск службы и проверка PID:
+
+```powershell
+adb -s <STATION_IP>:5555 shell "/etc/init.d/S99jarvis-led restart"
+adb -s <STATION_IP>:5555 shell "pidof jarvis-led"
+```
+
+Настройка пользовательской яркости (значение от `0.1` до `1.0`, по умолчанию `0.75`):
+
+```powershell
+adb -s <STATION_IP>:5555 shell "echo 0.8 > /data/opt/jarvis-led/brightness && /etc/init.d/S99jarvis-led restart"
 ```
 
 ---
 
-## 5. Слово активации «Джарвис»
+## 7. Комплексная проверка системы
 
-Ставится отдельным демоном
-[station-wakeword](https://github.com/tangenx/station-wakeword) — он слушает
-поток микрофона после эхоподавления и «нажимает кнопку» Алисы, когда слышит
-слово.
-
-Кратко:
-
-1. Скачайте релиз `station-wakeword` (статический бинарник под вашу
-   архитектуру) и `negatives.bin`.
-2. Разложите на колонке:
+1. **Проверка активных служб**:
 
 ```powershell
-adb shell "mkdir -p /data/wakeword"
-adb push wakeword      /data/wakeword/wakeword
-adb push negatives.bin /data/wakeword/negatives.bin
-adb shell "chmod 755 /data/wakeword/wakeword"
+adb -s <STATION_IP>:5555 shell "pidof quasar-bridge && pidof jarvis-led && pidof wakeword"
 ```
 
-3. Установите автозапуск `S97wakeword` из релиза проекта.
-4. Откройте `http://192.168.1.50:8780`, запишите 10–15 раз слово «Джарвис»
-   и нажмите «Обучить».
+2. **Голосовой тест ИИ-ассистента**:  
+   Произнесите: «Джарвис, кто ты?».  
+   *Критерий успеха*: Колонка озвучивает ответ персонажа J.A.R.V.I.S. Задержка до начала речи составляет 2–3 секунды. В момент начала речи кольцо загорается голубым цветом с мягкой пульсацией и полностью гаснет сразу после окончания речи.
 
-Подробная методика записи — в [WAKE_WORD.md](WAKE_WORD.md).
+3. **Проверка штатного умного дома**:  
+   Произнесите: «Алиса, включи свет» или «Алиса, который час».  
+   *Критерий успеха*: Команда обрабатывается мгновенно штатным сервисом Яндекса. Подсветка `jarvis-led` не активируется.
 
 ---
 
-## 6. Проверяем всё вместе
+## 8. Автозапуск и устойчивость к перезагрузкам
+
+Все службы зарегистрированы в `/etc/init.d/` и запускаются системой инициализации BusyBox в алфавитном порядке:
+
+| Скрипт | Назначение | Порядок старта |
+| --- | --- | --- |
+| `/etc/init.d/S97wakeword` | Фоновый аудио-споттер слова «Джарвис» | 97 |
+| `/etc/init.d/S99quasar-bridge` | Сетевой мост и маршрутизатор WebSocket | 99 |
+| `/etc/init.d/S99jarvis-led` | Демон адаптивной светодиодной индикации | 99 |
+
+Проверьте устойчивость после перезагрузки:
 
 ```powershell
-# 1. Мост жив
-adb shell "wget -q -O - http://127.0.0.1:8443/healthz"
-
-# 2. Маршруты: «свет» → yandex, «Джарвис» → llm
-adb shell "grep native_route_decision /data/opt/quasar-bridge/bridge.log | tail -5"
-
-# 3. Последние ответы и задержки
-adb shell "grep '\"event\":\"response\"' /data/opt/quasar-bridge/conversations.jsonl | tail -5"
+adb -s <STATION_IP>:5555 reboot
 ```
 
-Голосом:
-
-| Фраза | Ожидание |
-| --- | --- |
-| «Джарвис, кто ты?» | ответ LLM, 2–4 с, обращение «сэр» |
-| «Джарвис, почему небо голубое?» | короткое объяснение |
-| «Алиса, выключи свет» | штатный умный дом |
-| «Алиса, погода на завтра» | штатный сервис |
-
-Если первый ответ после долгого простоя идёт 10+ секунд — это нормально для
-бесплатного тарифа; прогревочный cron в воркере снижает эффект.
-
----
-
-## 7. Подсветка кольца (необязательно)
-
-Радужной анимации нет. Кольцо горит ровным голубым с мягким «дыханием»
-только пока Джарвис отвечает, и гаснет, когда ответ закончился. Всё остальное
-время кольцо выключено и полностью принадлежит Алисе — «слушаю», громкость,
-её собственные ответы.
-
-Как это устроено: демон читает только новые строки журнала моста
-`/data/opt/quasar-bridge/conversations.jsonl` и реагирует на события
-`{"event":"response","route":"llm"}`. Длительность свечения оценивается по
-длине текста (`2.5 с + символы / 14`), но не меньше 4 и не больше 28 секунд.
+Спустя 60 секунд восстановите соединение и проверьте работу служб:
 
 ```powershell
-cd src\led
-$env:GOOS="linux"; $env:GOARCH="arm"; $env:GOARM="7"; $env:CGO_ENABLED="0"
-go build -trimpath -ldflags="-s -w" -o jarvis-led .
-cd ..\..
-adb shell "mkdir -p /data/opt/jarvis-led"
-adb push src\led\jarvis-led /data/opt/jarvis-led/jarvis-led
-adb push src\led\S99jarvis-led /data/local/tmp/S99jarvis-led
-# /etc/init.d лежит на read-only разделе: сначала remount rw, потом ro
-adb shell "su -c 'mount -o remount,rw /; cp /data/local/tmp/S99jarvis-led /etc/init.d/S99jarvis-led; chmod 755 /etc/init.d/S99jarvis-led; sync; mount -o remount,ro /'"
-adb shell "chmod 755 /data/opt/jarvis-led/jarvis-led"
-adb shell "/etc/init.d/S99jarvis-led restart"
-```
-
-Для aarch64 соберите с `GOARCH=arm64` и `GOARM` не задавайте.
-
-Проверка без голоса — кольцо должно загореться голубым на 4 секунды:
-
-```powershell
-adb shell "/etc/init.d/S99jarvis-led stop; /data/opt/jarvis-led/jarvis-led -demo 4s; /etc/init.d/S99jarvis-led start"
-```
-
-Яркость (`0..1`, по умолчанию `0.8`):
-
-```powershell
-adb shell "echo 0.8 > /data/opt/jarvis-led/brightness; /etc/init.d/S99jarvis-led restart"
+adb connect <STATION_IP>:5555
+adb -s <STATION_IP>:5555 shell "wget -q -O - http://127.0.0.1:8443/healthz && pidof jarvis-led"
 ```
 
 ---
 
-## 8. Автозапуск после перезагрузки
+## 9. Регламент обновления
 
-Всё уже настроено init-скриптами:
-
-| Скрипт | Что запускает |
-| --- | --- |
-| `/etc/init.d/S97wakeword` | слово активации |
-| `/etc/init.d/S99quasar-bridge` | мост + watchdog (перезапуск через 5 с) |
-| `/etc/init.d/S99jarvis-led` | подсветка |
-
-Проверка: `adb reboot`, подождите 60 секунд, затем:
-
-```powershell
-adb connect 192.168.1.50:5555
-adb shell "pidof quasar-bridge; wget -q -O - http://127.0.0.1:8443/healthz"
-```
+- **Обновление системного промпта или воркера**:  
+  Отредактируйте `src/worker/cloudflare-proxy.js` $\to$ выполните `python scripts\deploy_worker.py`.
+- **Обновление правил маршрутизации**:  
+  Отредактируйте `config.json` на ПК $\to$ загрузите strictly через `adb push`:  
+  ```powershell
+  adb -s <STATION_IP>:5555 push config.json /data/opt/quasar-bridge/config.json
+  adb -s <STATION_IP>:5555 shell "/etc/init.d/S99quasar-bridge restart"
+  ```
+  *(Категорически запрещено применять PowerShell `Set-Content` во избежание повреждения UTF-8).*
 
 ---
 
-## 9. Необязательно: режим ПК
+## 10. Процедура полного отката
 
-Мост умеет отправлять запросы не в облако, а на ваш ПК — если нужен доступ
-к инструментам Windows (громкость, окна, скриншоты, выключение).
-
-1. Поднимите на ПК любой OpenAI-совместимый сервер на `0.0.0.0:8765`.
-2. Переключите мозг:
+Для возврата Станции к штатному заводскому состоянию:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\bridge_brain.ps1 -Mode pc -Device 192.168.1.50:5555
+# 1. Возврат оригинального голосового тракта quasar.cfg
+powershell -ExecutionPolicy Bypass -File scripts\apply_endpoint.ps1 -Device <STATION_IP>:5555 -Rollback
+
+# 2. Остановка кастомных служб
+adb -s <STATION_IP>:5555 shell "/etc/init.d/S99quasar-bridge stop"
+adb -s <STATION_IP>:5555 shell "/etc/init.d/S99jarvis-led stop"
+adb -s <STATION_IP>:5555 shell "/etc/init.d/S97wakeword stop"
+
+# 3. Восстановление исходного /etc/hosts
+adb -s <STATION_IP>:5555 shell "mount -o remount,rw / && cp /data/opt/quasar-bridge/hosts.orig /etc/hosts && sync && mount -o remount,ro /"
 ```
-
-3. Вернуть облако:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\bridge_brain.ps1 -Mode cloud -Device 192.168.1.50:5555
-```
-
-> В облачном режиме ПК не нужен вообще — это и есть рекомендуемая схема.
-
----
-
-## 10. Обновление
-
-- **Воркер:** правьте `src/worker/cloudflare-proxy.js` и снова запускайте
-  `python scripts\deploy_worker.py`.
-- **Конфиг моста:** меняйте `config.json`, затем
-  `adb push config.json /data/opt/quasar-bridge/config.json` и
-  `/etc/init.d/S99quasar-bridge restart`.
-- **Мост:** скачайте новый бинарник и повторите шаг 3 (Вариант B).
-
-> ⚠️ Конфиг на колонку выкатывайте **только** `adb push` исходного файла.
-> PowerShell `Get-Content`/`Set-Content` может перекодировать UTF-8, и русские
-> фразы в правилах перестанут совпадать (мост будет молча уходить в
-> `default_route`).
-
----
-
-## 11. Полный откат
-
-```powershell
-# вернуть голосовой тракт Яндексу
-powershell -ExecutionPolicy Bypass -File scripts\apply_endpoint.ps1 -Rollback
-
-# остановить мост
-adb shell "/etc/init.d/S99quasar-bridge stop"
-
-# остановить подсветку (если ставили)
-adb shell "/etc/init.d/S99jarvis-led stop"
-```
-
-Колонка снова полностью в облаке Яндекса. Воркер можно удалить в дашборде
-Cloudflare.
