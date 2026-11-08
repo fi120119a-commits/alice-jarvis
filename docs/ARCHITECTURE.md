@@ -58,8 +58,8 @@
 | **`station-wakeword`** | Колонка (ARMv7) | `/data/wakeword/` | Захват `/dev/snd/pcmC0D0c` (`vqe_0`), HTTP UI `:8780`, программный триггер в `maind` |
 | **`quasar-bridge`** | Колонка (ARMv7) | `/data/opt/quasar-bridge/` | WebSocket-сервер `:8443`, HTTP эндпоинт `/healthz`, файл журнала `conversations.jsonl` |
 | **`jarvis-led`** | Колонка (ARMv7) | `/data/opt/jarvis-led/` | Асинхронный tail `conversations.jsonl`, запись в Linux sysfs `/sys/class/leds/` |
-| **`cloudflare-proxy.js`** | Cloudflare Workers | Edge Network | REST API OpenAI-совместимого стандарта: `POST /cf/v1/chat/completions` |
-| **`Workers AI`** | Cloudflare Data Centers | Cloud | Бессерверный инференс LLM (10 000 нейронов/сутки) |
+| **`cloudflare-proxy.js`** | Cloudflare Workers | Edge Network | REST API OpenAI-совместимого стандарта: `POST /cf/v1/chat/completions` (или внешний OpenAI-совместимый провайдер) |
+| **`Workers AI / Any LLM`** | Cloudflare / Любой LLM API | Cloud / Local | Инференс LLM: Cloudflare (рекомендуется для РФ, 10 000 нейронов/сутки бесплатно) либо OpenRouter, Groq, DeepSeek, локальная модель |
 
 ---
 

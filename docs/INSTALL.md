@@ -49,6 +49,8 @@ adb -s <STATION_IP>:5555 shell "id; uname -m; cat /proc/version"
 
 ## 2. Развёртывание облачного «мозга» (Cloudflare Workers AI)
 
+> 💡 **Выбор нейросети:** проект поддерживает **любую нейросеть** с OpenAI-совместимым API (Groq, DeepSeek, OpenRouter, OpenAI, локальные модели). Для жителей РФ по умолчанию рекомендуется **Cloudflare Workers AI**: бесплатно 10 000 нейронов/день, не требует VPN и зарубежных карт. Если вы используете сторонний API или локальную модель, развёртывание воркера можно пропустить и настроить мост через `scripts/bridge_brain.ps1` (см. шаг 2.4).
+
 ### 2.1. Создание API-токена Cloudflare
 
 1. Откройте консоль управления [dash.cloudflare.com](https://dash.cloudflare.com).
@@ -121,6 +123,28 @@ curl.exe -s -H "Authorization: Bearer <JARVIS_KEY>" `
 ```
 
 Ожидаемый ответ: JSON-объект в стандарте OpenAI с репликой персонажа J.A.R.V.I.S. и обращением «сэр/мисс».
+
+### 2.4. Использование альтернативных нейросетей (OpenRouter, Groq, DeepSeek, локальные)
+
+Если вы не хотите использовать Cloudflare или предпочитаете другого провайдера, можно подключить любую OpenAI-совместимую модель с помощью `scripts/bridge_brain.ps1`:
+
+* **OpenRouter:**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\bridge_brain.ps1 `
+    -Mode openrouter -Key "sk-or-v1-..." -Model "meta-llama/llama-3.3-70b-instruct:free"
+  ```
+* **Groq / DeepSeek / OpenAI:**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\bridge_brain.ps1 `
+    -Mode custom -BaseUrl "https://api.groq.com/openai/v1" -Model "llama-3.3-70b-versatile" -Key "gsk_..."
+  ```
+* **Локальная модель на ПК (Ollama / LM Studio):**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\bridge_brain.ps1 `
+    -Mode pc -BaseUrl "http://192.168.1.50:11434/v1" -Model "mistral"
+  ```
+
+Команда автоматически обновит конфигурацию и перезапустит службу на Станции.
 
 ---
 
